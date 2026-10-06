@@ -261,13 +261,8 @@ class App:
         frm_quiet.pack(fill="x", **pad)
         start_str, end_str, quiet_on = self._load_quiet_range()
         self._quiet_applied = (start_str, end_str, quiet_on)   # 已生效的静默区间
-        self.quiet_enabled_var = tk.BooleanVar(value=quiet_on)
-        ttk.Checkbutton(frm_quiet, text="启用（区间内不发起登录）",
-                        variable=self.quiet_enabled_var,
-                        command=self._refresh_quiet_widgets).grid(
-            row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(6, 2))
         pickers = ttk.Frame(frm_quiet)
-        pickers.grid(row=1, column=0, columnspan=2, sticky="ew", padx=8, pady=(2, 0))
+        pickers.grid(row=0, column=0, columnspan=2, sticky="ew", padx=8, pady=(6, 0))
         pickers.columnconfigure(1, weight=1)
         pickers.columnconfigure(3, weight=1)
         times = ["%02d:00" % h for h in range(24)]
@@ -292,10 +287,11 @@ class App:
         self._enable_scrub(self.quiet_end_list)
         self.quiet_summary_var = tk.StringVar()
         ttk.Label(frm_quiet, textvariable=self.quiet_summary_var, wraplength=340).grid(
-            row=2, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 2))
+            row=1, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 2))
         quiet_btns = ttk.Frame(frm_quiet)
-        quiet_btns.grid(row=3, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 8))
+        quiet_btns.grid(row=2, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 8))
         ttk.Button(quiet_btns, text="设定", command=self._on_quiet_apply).pack(side="left", padx=(0, 4))
+        ttk.Button(quiet_btns, text="停用", command=self._on_quiet_disable).pack(side="left", padx=(0, 4))
         ttk.Button(quiet_btns, text="还原", command=self._on_quiet_revert).pack(side="left")
         self._refresh_quiet_widgets()
 
@@ -601,9 +597,7 @@ class App:
         return self.quiet_end_list.get(sel[0]) if sel else "06:00"
 
     def _quiet_range(self):
-        """返回 'HH:MM-HH:MM'；未启用返回空串。"""
-        if not self.quiet_enabled_var.get():
-            return ""
+        """滑选中的（暂存）区间 'HH:MM-HH:MM'。"""
         return "%s-%s" % (self._quiet_start(), self._quiet_end())
 
     def _applied_range_str(self):
@@ -620,20 +614,28 @@ class App:
             lb.see(idx)
 
     def _on_quiet_apply(self):
-        """把滑选中的区间设为生效值（防误触：滑动只暂存，点「设定」才生效）。"""
-        self._quiet_applied = (self._quiet_start(), self._quiet_end(),
-                               self.quiet_enabled_var.get())
+        """设定即启用：把滑选中的区间设为生效值（滑动只暂存，防误触）。"""
+        self._quiet_applied = (self._quiet_start(), self._quiet_end(), True)
         rng = self._applied_range_str()
         self.cfg["quiet_hours"] = rng
         self._write_config()
         if self.engine:                       # 监控中即时生效，无需重启
             self.engine.quiet_predicate = core.build_quiet_predicate(rng)
-        self._queue_log("CONFIG", "静默时段已设定：%s" % (rng or "未启用"))
+        self._queue_log("CONFIG", "静默时段已设定：%s（已启用，区间内不发起登录）" % rng)
+        self._refresh_quiet_widgets()
+
+    def _on_quiet_disable(self):
+        """停用静默时段。"""
+        self._quiet_applied = (self._quiet_applied[0], self._quiet_applied[1], False)
+        self.cfg["quiet_hours"] = ""
+        self._write_config()
+        if self.engine:
+            self.engine.quiet_predicate = core.build_quiet_predicate("")
+        self._queue_log("CONFIG", "静默时段已停用")
         self._refresh_quiet_widgets()
 
     def _on_quiet_revert(self):
         self._set_picker(self._quiet_applied[0], self._quiet_applied[1])
-        self.quiet_enabled_var.set(self._quiet_applied[2])
         self._refresh_quiet_widgets()
 
     def _format_quiet_hours(self):
@@ -641,12 +643,14 @@ class App:
         return rng if rng else "未启用"
 
     def _refresh_quiet_widgets(self):
-        applied = self._applied_range_str() or "未启用"
-        pending = self._quiet_range() or "未启用"
-        if pending != applied:
+        applied = self._applied_range_str()
+        pending = self._quiet_range()
+        if applied and pending == applied:
+            self.quiet_summary_var.set("生效：%s（区间内不发起登录）" % applied)
+        elif applied:
             self.quiet_summary_var.set("生效：%s ｜ 待设定：%s（点「设定」后生效）" % (applied, pending))
         else:
-            self.quiet_summary_var.set("生效：%s（区间内不发起登录）" % applied)
+            self.quiet_summary_var.set("未启用 ｜ 待设定：%s（点「设定」后启用并生效）" % pending)
 
     def _write_config(self):
         tmp_path = self.cfg_path + ".tmp"
