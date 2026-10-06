@@ -208,9 +208,6 @@ class App:
         ttk.Label(frm_run, text="探测间隔（秒）：").grid(row=1, column=0, sticky="w", padx=8, pady=2)
         self.interval_var = tk.StringVar(value=str(self.cfg.get("probe_interval_sec", 5)))
         ttk.Spinbox(frm_run, from_=2, to=120, textvariable=self.interval_var, width=6).grid(row=1, column=1, sticky="w")
-        ttk.Label(frm_run, text="静默时段（如 00:00-06:00）：").grid(row=1, column=2, sticky="w", padx=8)
-        self.quiet_var = tk.StringVar(value=str(self.cfg.get("quiet_hours", "")))
-        ttk.Entry(frm_run, textvariable=self.quiet_var, width=14).grid(row=1, column=3, sticky="w")
 
         btns = ttk.Frame(frm_run)
         btns.grid(row=2, column=0, columnspan=4, sticky="w", padx=8, pady=6)
@@ -220,6 +217,32 @@ class App:
         self.stop_btn = ttk.Button(btns, text="停止监控", command=self.stop_monitor, state="disabled")
         self.stop_btn.pack(side="left", padx=4)
         ttk.Button(btns, text="退出程序", command=self.on_exit).pack(side="left", padx=4)
+
+        # 静默时段：表格点选小时格子，选中的小时不发起登录
+        frm_quiet = ttk.LabelFrame(self.root, text="静默时段（点选小时格子；选中 = 该小时不发起登录）")
+        frm_quiet.pack(fill="x", **pad)
+        self.quiet_hours = self._load_quiet_hours()
+        self.hour_buttons = {}
+        grid = ttk.Frame(frm_quiet)
+        grid.pack(anchor="w", padx=8, pady=(6, 0))
+        for h in range(24):
+            btn = tk.Button(grid, text="%02d" % h, width=4, relief="groove",
+                            command=lambda hh=h: self._toggle_quiet_hour(hh))
+            btn.grid(row=h // 8, column=h % 8, padx=2, pady=2)
+            self.hour_buttons[h] = btn
+            if h == 0:
+                self._default_btn_bg = btn.cget("bg")
+                self._default_btn_active_bg = btn.cget("activebackground")
+        self.quiet_summary_var = tk.StringVar()
+        ttk.Label(frm_quiet, textvariable=self.quiet_summary_var).pack(anchor="w", padx=8, pady=(4, 2))
+        quiet_tools = ttk.Frame(frm_quiet)
+        quiet_tools.pack(anchor="w", padx=8, pady=(0, 8))
+        ttk.Button(quiet_tools, text="全不选", command=self._clear_quiet_hours).pack(side="left", padx=4)
+        ttk.Button(quiet_tools, text="夜间 23–07",
+                   command=lambda: self._set_quiet_hours(set(range(23, 24)) | set(range(0, 8)))).pack(side="left", padx=4)
+        ttk.Button(quiet_tools, text="凌晨 00–06",
+                   command=lambda: self._set_quiet_hours(set(range(0, 6)))).pack(side="left", padx=4)
+        self._refresh_quiet_widgets()
 
         # Clash 共存
         frm_clash = ttk.LabelFrame(self.root, text="Clash 共存")
@@ -336,13 +359,13 @@ class App:
         if not creds:
             messagebox.showwarning("缺少账号", "请先填写账号密码并点击「保存账号」")
             return
-        quiet = core.parse_quiet_window(self.quiet_var.get())
+        quiet = sorted(self.quiet_hours)
         self.engine = core.Engine(self.cfg, creds, quiet_window=quiet, interruptible_sleep=True)
         self.worker = threading.Thread(target=self._monitor_loop, daemon=True)
         self.worker.start()
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
-        self._queue_log(core.STATE_INIT, "监控已启动（静默时段：%s）" % (self.quiet_var.get() or "未启用"))
+        self._queue_log(core.STATE_INIT, "监控已启动（静默时段：%s）" % self._format_quiet_hours())
 
     def stop_monitor(self):
         if self.engine:
@@ -433,13 +456,72 @@ class App:
 
         threading.Thread(target=work, daemon=True).start()
 
+    def _load_quiet_hours(self):
+        """从配置加载静默小时集合（兼容旧的区间字符串写法）。"""
+        spec = self.cfg.get("quiet_hours", "")
+        hours = set()
+        if isinstance(spec, (list, tuple, set)):
+            for h in spec:
+                try:
+                    hh = int(h)
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= hh <= 23:
+                    hours.add(hh)
+        elif isinstance(spec, str) and spec.strip():
+            w = core.parse_quiet_window(spec)
+            if w:
+                s, e = w
+                span = range(s, e) if s <= e else range(s, 24 * 60 + e)
+                for m in span:
+                    hours.add((m // 60) % 24)
+        return hours
+
+    def _toggle_quiet_hour(self, hour):
+        if hour in self.quiet_hours:
+            self.quiet_hours.discard(hour)
+        else:
+            self.quiet_hours.add(hour)
+        self._refresh_quiet_widgets()
+
+    def _set_quiet_hours(self, hours):
+        self.quiet_hours = set(hours)
+        self._refresh_quiet_widgets()
+
+    def _clear_quiet_hours(self):
+        self.quiet_hours = set()
+        self._refresh_quiet_widgets()
+
+    def _format_quiet_hours(self):
+        if not self.quiet_hours:
+            return "未启用"
+        hs = sorted(self.quiet_hours)
+        parts = []
+        i = 0
+        while i < len(hs):
+            j = i
+            while j + 1 < len(hs) and hs[j + 1] == hs[j] + 1:
+                j += 1
+            parts.append("%02d 时-%02d 时" % (hs[i], hs[j]))
+            i = j + 1
+        return "、".join(parts)
+
+    def _refresh_quiet_widgets(self):
+        for h, btn in self.hour_buttons.items():
+            if h in self.quiet_hours:
+                btn.configure(bg="#CCE5FF", activebackground="#99CCFF", relief="sunken")
+            else:
+                btn.configure(bg=self._default_btn_bg,
+                              activebackground=self._default_btn_active_bg, relief="groove")
+        self.quiet_summary_var.set("已选 %d 小时：%s" % (len(self.quiet_hours), self._format_quiet_hours()))
+
     def on_save_settings(self):
         try:
             self.cfg["probe_interval_sec"] = max(2, int(self.interval_var.get()))
         except ValueError:
             messagebox.showwarning("格式错误", "探测间隔必须是整数秒")
             return
-        self.cfg["quiet_hours"] = self.quiet_var.get().strip()
+        self.cfg["quiet_hours"] = sorted(self.quiet_hours)
         tmp_path = self.cfg_path + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(self.cfg, f, ensure_ascii=False, indent=2)

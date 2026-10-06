@@ -74,7 +74,7 @@ python campus_login.py                 # 常驻监控
 | `probe_interval_sec` | `5` | 在线检测间隔（秒） |
 | `backoff_base_sec` / `backoff_max_sec` | `1` / `60` | 重试退避基数与上限 |
 | `request_timeout_sec` | `10` | 单次请求超时 |
-| `quiet_hours` | `""` | 静默时段，如 `00:00-06:00`（时段内不发起登录） |
+| `quiet_hours` | `[]` | 静默小时列表，如 `[0,1,2,3,4,5]`（界面表格点选，选中小时不发起登录；兼容旧写法 `"00:00-06:00"`） |
 
 ## Clash 共存原理
 
@@ -130,7 +130,7 @@ py -m PyInstaller --noconfirm --onefile --noconsole --name CampusAutoLogin `
 | 托盘图标看不到 | 任务栏「显示隐藏的图标」(^) 中查找；或运行 `--diag` 查看 `tray_icon`/图标状态 |
 | 改了密码 | 界面改密码 → 保存账号 → 测试登录 |
 | 换校区 / 网关参数变化 | 无需改动，`wlanuserip/mac/wlanacname` 等参数每次联网实时解析 |
-| 夜间断网频繁重试 | 设置静默时段 `00:00-06:00` |
+| 夜间断网频繁重试 | 在「静默时段」表格里点选夜间小时（如 23–07） |
 
 ## 免责声明
 

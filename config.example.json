@@ -5,5 +5,5 @@
   "backoff_base_sec": 1,
   "backoff_max_sec": 60,
   "request_timeout_sec": 10,
-  "quiet_hours": ""
+  "quiet_hours": []
 }

@@ -372,7 +372,7 @@ def load_config(path: str) -> dict:
     cfg = dict(DEFAULT_CONFIG)
     if os.path.exists(path):
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8-sig") as f:  # utf-8-sig 兼容带 BOM 的写入端
                 loaded = json.load(f)
             if isinstance(loaded, dict):
                 cfg.update(loaded)
@@ -403,6 +403,37 @@ def in_quiet_window(window, now: datetime) -> bool:
     if start <= end:
         return start <= cur < end
     return cur >= start or cur < end  # 跨午夜
+
+
+def build_quiet_predicate(spec):
+    """把静默时段规格统一成谓词：True = 该时刻处于静默时段（不发起登录）。
+
+    支持三种写法：
+      - 小时列表/集合 [0, 1, 2, 3, 4, 5]（界面表格点选产生，推荐）
+      - 区间字符串 "00:00-06:00"（可跨午夜，兼容旧配置）
+      - (start_min, end_min) 二元组（兼容旧调用与自检）
+    """
+    if spec is None:
+        return lambda now: False
+    if callable(spec):
+        return spec
+    if isinstance(spec, tuple) and len(spec) == 2:
+        window = spec
+        return lambda now: in_quiet_window(window, now)
+    if isinstance(spec, str):
+        window = parse_quiet_window(spec)
+        return build_quiet_predicate(window) if window else (lambda now: False)
+    if isinstance(spec, (list, set)):
+        hours = set()
+        for h in spec:
+            try:
+                hh = int(h)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= hh <= 23:
+                hours.add(hh)
+        return lambda now: now.hour in hours
+    return lambda now: False
 
 
 def log(state: str, msg: str):
@@ -444,7 +475,7 @@ class Engine:
             page_url, creds[0], creds[1], cfg["portal_base"], float(cfg["request_timeout_sec"])))
         self.sleep_fn = sleep_fn
         self.now_fn = now_fn
-        self.quiet_window = quiet_window
+        self.quiet_predicate = build_quiet_predicate(quiet_window)
         self.state = STATE_INIT
         self.fail_count = 0
         self.login_attempts = 0       # 运行时不变量检查用
@@ -470,7 +501,7 @@ class Engine:
 
     def step(self):
         now = self.now_fn()
-        quiet = in_quiet_window(self.quiet_window, now)
+        quiet = self.quiet_predicate(now)
         state, portal = self.probe_fn()
 
         if state == STATE_ONLINE:
@@ -587,7 +618,13 @@ def selftest():
     assert eng.state == STATE_ONLINE and eng.fail_count == 0
     assert c["login"] == 1, "复测在线后不得重复登录"
 
-    print("selftest PASS：退避封顶 / 未知结果裁决 / 静默时段 / 成功清零 全部通过")
+    # 用例 5：小时列表格式（界面表格点选）同样生效
+    eng, c = fake_env([(STATE_UNAUTH, "")] * 2, [(RESULT_SUCCESS_HINT, "x")] * 2,
+                      quiet=[2], start="2026-10-06 02:30:00")
+    eng.run(max_iterations=2)
+    assert c["login"] == 0 and eng.state == STATE_QUIET, "小时列表静默格式未生效"
+
+    print("selftest PASS：退避封顶 / 未知结果裁决 / 静默时段（区间+小时列表）/ 成功清零 全部通过")
 
 
 # ---------------------------------------------------------------------------
@@ -698,7 +735,7 @@ def main(argv=None):
         print("已有实例在运行，退出")
         return 1
 
-    quiet = parse_quiet_window(cfg.get("quiet_hours", ""))
+    quiet = cfg.get("quiet_hours", "")
     engine = Engine(cfg, creds, quiet_window=quiet)
     log(STATE_INIT, "启动监控：探测间隔 %ss，退避 1s 起封顶 %ss，静默时段 %s" % (
         cfg["probe_interval_sec"], cfg["backoff_max_sec"], cfg.get("quiet_hours") or "未启用"))
