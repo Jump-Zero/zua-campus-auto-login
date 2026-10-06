@@ -1,5 +1,7 @@
 # ZUA 校园网自动登录 · zua-campus-auto-login
 
+![build](https://github.com/Jump-Zero/zua-campus-auto-login/actions/workflows/build.yml/badge.svg)
+
 > 郑州航空工业管理学院（**ZUA**）校园网自动登录工具：开机自动认证、断线自动重连、Clash 长期共存、托盘可视化、账号本地加密。
 >
 > **标注：`zua`** ｜ 协议：`webauth.do` 实名认证（普通表单 POST）｜ 平台：Windows 10/11
@@ -37,6 +39,8 @@ python campus_login.py                 # 常驻监控
 ```
 
 ## 界面与托盘
+
+![主界面](docs/img/gui-main.png)
 
 | 操作 | 说明 |
 |---|---|
@@ -108,6 +112,8 @@ py -m PyInstaller --noconfirm --onefile --noconsole --name CampusAutoLogin `
 ```
 
 构建产物清单见 `dist/build_info.json`（含 SHA256、工具链版本、源码哈希，支持等价重建回滚）。
+
+**CI 自动化**（`.github/workflows/build.yml`）：推送 `main` 自动执行引擎/界面自检并构建 exe（产物在 Actions 的 Artifacts 中下载）；推送 `v*` 标签自动发布 GitHub Release 并上传 `CampusAutoLogin.exe` + `build_info.json`。
 
 ## 安全说明
 
