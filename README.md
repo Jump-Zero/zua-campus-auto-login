@@ -40,6 +40,8 @@ python campus_login.py                 # 常驻监控
 
 ## 界面与托盘
 
+> 界面为桌面小插件风格：启动后自动停靠**屏幕右下角**，尺寸紧凑（约 420×580），内容区可滚动，窗口可自由缩放。
+
 ![主界面](docs/img/gui-main.png)
 
 | 操作 | 说明 |
@@ -74,9 +76,11 @@ python campus_login.py                 # 常驻监控
 | `probe_interval_sec` | `5` | 在线检测间隔（秒） |
 | `backoff_base_sec` / `backoff_max_sec` | `1` / `60` | 重试退避基数与上限 |
 | `request_timeout_sec` | `10` | 单次请求超时 |
-| `quiet_hours` | `[]` | 静默小时列表，如 `[0,1,2,3,4,5]`（界面表格点选，选中小时不发起登录；兼容旧写法 `"00:00-06:00"`） |
+| `quiet_hours` | `""` | 静默时段区间 `"HH:MM-HH:MM"`（界面滑选开始/结束时间，留空不启用；支持跨午夜） |
 
 ## Clash 共存原理
+
+> 详细说明（要不要配规则、怎么配、怎么验证）见 **[docs/clash.md](docs/clash.md)**。
 
 认证期流量必须绕开代理直连网关，三层防线保证 Clash 全程开启：
 
@@ -130,7 +134,7 @@ py -m PyInstaller --noconfirm --onefile --noconsole --name CampusAutoLogin `
 | 托盘图标看不到 | 任务栏「显示隐藏的图标」(^) 中查找；或运行 `--diag` 查看 `tray_icon`/图标状态 |
 | 改了密码 | 界面改密码 → 保存账号 → 测试登录 |
 | 换校区 / 网关参数变化 | 无需改动，`wlanuserip/mac/wlanacname` 等参数每次联网实时解析 |
-| 夜间断网频繁重试 | 在「静默时段」表格里点选夜间小时（如 23–07） |
+| 夜间断网频繁重试 | 静默时段框内滑动选择开始/结束 → 点「设定」生效（防误触，滑动只暂存） |
 
 ## 免责声明
 

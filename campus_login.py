@@ -624,6 +624,12 @@ def selftest():
     eng.run(max_iterations=2)
     assert c["login"] == 0 and eng.state == STATE_QUIET, "小时列表静默格式未生效"
 
+    # 用例 6：区间字符串格式（界面滑选产生）
+    eng, c = fake_env([(STATE_UNAUTH, "")] * 1, [(RESULT_SUCCESS_HINT, "x")] * 1,
+                      quiet="02:00-03:00", start="2026-10-06 02:30:00")
+    eng.run(max_iterations=1)
+    assert c["login"] == 0 and eng.state == STATE_QUIET, "区间字符串静默格式未生效"
+
     print("selftest PASS：退避封顶 / 未知结果裁决 / 静默时段（区间+小时列表）/ 成功清零 全部通过")
 
 

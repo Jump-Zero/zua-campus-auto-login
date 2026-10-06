@@ -156,110 +156,183 @@ class App:
         self.root.after(100, self._poll_logs)
         self.root.after(150, self._poll_actions)
         if auto_start and self.auto_reconnect_var.get():
-            self.start_monitor()
+            self.start_monitor(auto=True)
 
     # ---- UI 构建 ----
 
     def _build_ui(self):
-        self.root.title("校园网自动登录 - 设置")
-        self.root.minsize(620, 680)
+        self.root.title("校园网自动登录")
+        self.root.minsize(380, 420)             # 小插件尺寸，内容区可滚动
+        self.root.geometry("420x580")
 
         pad = {"padx": 10, "pady": 6}
 
+        # 可滚动内容区：窗口任意大小都能看到全部设置项（自适应）
+        container = ttk.Frame(self.root)
+        container.pack(fill="both", expand=True)
+        self.canvas = tk.Canvas(container, highlightthickness=0)
+        vsb = ttk.Scrollbar(container, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y")
+        self.canvas.pack(side="left", fill="both", expand=True)
+        body = ttk.Frame(self.canvas)
+        body_win = self.canvas.create_window((0, 0), window=body, anchor="nw")
+
+        def _on_body_configure(_e):
+            self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+        def _on_canvas_configure(e):
+            # 内容宽度始终跟随可视宽度，控件随窗口拉伸
+            self.canvas.itemconfigure(body_win, width=e.width)
+
+        body.bind("<Configure>", _on_body_configure)
+        self.canvas.bind("<Configure>", _on_canvas_configure)
+
+        def _on_mousewheel(e):
+            # 时间框 / 日志自己消费滚轮（滑动选时间），不再带动整页滚动
+            w = getattr(e, "widget", None)
+            if w is not None:
+                if w.winfo_class() in ("Listbox", "Text"):
+                    return
+                if w in (self.quiet_start_list, self.quiet_end_list) or \
+                        getattr(w, "master", None) is pickers:
+                    return
+            self.canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+        self.canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
         # 状态区
-        frm_state = ttk.LabelFrame(self.root, text="状态")
+        frm_state = ttk.LabelFrame(body, text="状态")
         frm_state.pack(fill="x", **pad)
         self.state_var = tk.StringVar(value="未启动")
         self.detail_var = tk.StringVar(value="探测与登录均由后台引擎完成，登录成败以门户复测为准")
         ttk.Label(frm_state, text="当前状态：").grid(row=0, column=0, sticky="w", padx=8, pady=4)
         self.state_label = ttk.Label(frm_state, textvariable=self.state_var, font=("", 11, "bold"))
         self.state_label.grid(row=0, column=1, sticky="w", padx=4)
-        ttk.Label(frm_state, textvariable=self.detail_var, foreground="#666666").grid(
-            row=1, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 6))
-        ttk.Button(frm_state, text="立即登录", command=self.on_login_now).grid(row=0, column=2, padx=8)
-        ttk.Button(frm_state, text="探测一次", command=self.on_probe_once).grid(row=0, column=3, padx=8)
+        ttk.Label(frm_state, textvariable=self.detail_var, foreground="#666666",
+                  wraplength=340).grid(row=1, column=0, columnspan=2, sticky="w", padx=8, pady=(2, 0))
+        state_btns = ttk.Frame(frm_state)
+        state_btns.grid(row=2, column=0, columnspan=2, sticky="w", padx=8, pady=(2, 8))
+        ttk.Button(state_btns, text="立即登录", command=self.on_login_now).pack(side="left", padx=(0, 4))
+        ttk.Button(state_btns, text="探测一次", command=self.on_probe_once).pack(side="left")
 
         # 账号区
-        frm_acc = ttk.LabelFrame(self.root, text="账号（预存，DPAPI 加密保存）")
+        frm_acc = ttk.LabelFrame(body, text="账号（预存，DPAPI 加密保存）")
         frm_acc.pack(fill="x", **pad)
-        ttk.Label(frm_acc, text="账号：").grid(row=0, column=0, sticky="w", padx=8, pady=4)
-        self.user_entry = ttk.Entry(frm_acc, width=24)
-        self.user_entry.grid(row=0, column=1, sticky="w", padx=4)
+        ttk.Label(frm_acc, text="账号：").grid(row=0, column=0, sticky="w", padx=8, pady=(6, 2))
+        self.user_entry = ttk.Entry(frm_acc)
+        self.user_entry.grid(row=0, column=1, sticky="ew", padx=(0, 8), pady=(6, 2))
         if self.creds:
             self.user_entry.insert(0, self.creds[0])
-        ttk.Label(frm_acc, text="密码：").grid(row=0, column=2, sticky="w", padx=8)
-        self.pass_entry = ttk.Entry(frm_acc, width=24, show="*")
-        self.pass_entry.grid(row=0, column=3, sticky="w", padx=4)
+        ttk.Label(frm_acc, text="密码：").grid(row=1, column=0, sticky="w", padx=8, pady=2)
+        self.pass_entry = ttk.Entry(frm_acc, show="*")
+        self.pass_entry.grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=2)
         if self.creds:
             self.pass_entry.insert(0, self.creds[1])
-        ttk.Button(frm_acc, text="保存账号", command=self.on_save_account).grid(row=1, column=0, columnspan=2, sticky="w", padx=8, pady=6)
-        ttk.Button(frm_acc, text="测试登录（密码预检）", command=self.on_test_account).grid(row=1, column=2, columnspan=2, sticky="w", padx=8, pady=6)
+        frm_acc.columnconfigure(1, weight=1)
+        acc_btns = ttk.Frame(frm_acc)
+        acc_btns.grid(row=2, column=0, columnspan=2, sticky="w", padx=8, pady=(2, 8))
+        ttk.Button(acc_btns, text="保存账号", command=self.on_save_account).pack(side="left", padx=(0, 4))
+        ttk.Button(acc_btns, text="测试登录（密码预检）", command=self.on_test_account).pack(side="left")
 
         # 运行设置
-        frm_run = ttk.LabelFrame(self.root, text="运行设置")
+        frm_run = ttk.LabelFrame(body, text="运行设置")
         frm_run.pack(fill="x", **pad)
         self.auto_reconnect_var = tk.BooleanVar(value=True)
         self.autostart_var = tk.BooleanVar(value=get_autostart())
         ttk.Checkbutton(frm_run, text="自动重连（断网自动登录）", variable=self.auto_reconnect_var).grid(
-            row=0, column=0, columnspan=2, sticky="w", padx=8, pady=2)
+            row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(6, 2))
         ttk.Checkbutton(frm_run, text="开机自启（静默启动并最小化）", variable=self.autostart_var,
-                        command=self.on_toggle_autostart).grid(row=0, column=2, columnspan=2, sticky="w", padx=8, pady=2)
-
-        ttk.Label(frm_run, text="探测间隔（秒）：").grid(row=1, column=0, sticky="w", padx=8, pady=2)
+                        command=self.on_toggle_autostart).grid(row=1, column=0, columnspan=2, sticky="w", padx=8, pady=2)
+        ttk.Label(frm_run, text="探测间隔（秒）：").grid(row=2, column=0, sticky="w", padx=8, pady=2)
         self.interval_var = tk.StringVar(value=str(self.cfg.get("probe_interval_sec", 5)))
-        ttk.Spinbox(frm_run, from_=2, to=120, textvariable=self.interval_var, width=6).grid(row=1, column=1, sticky="w")
+        ttk.Spinbox(frm_run, from_=2, to=120, textvariable=self.interval_var, width=6).grid(row=2, column=1, sticky="w")
+        run_btns = ttk.Frame(frm_run)
+        run_btns.grid(row=3, column=0, columnspan=2, sticky="w", padx=8, pady=(2, 8))
+        ttk.Button(run_btns, text="保存设置", command=self.on_save_settings).pack(side="left", padx=(0, 4))
+        self.start_btn = ttk.Button(run_btns, text="启动监控", command=self.start_monitor)
+        self.start_btn.pack(side="left", padx=(0, 4))
+        self.stop_btn = ttk.Button(run_btns, text="停止监控", command=self.stop_monitor, state="disabled")
+        self.stop_btn.pack(side="left", padx=(0, 4))
+        ttk.Button(run_btns, text="退出程序", command=self.on_exit).pack(side="left")
 
-        btns = ttk.Frame(frm_run)
-        btns.grid(row=2, column=0, columnspan=4, sticky="w", padx=8, pady=6)
-        ttk.Button(btns, text="保存设置", command=self.on_save_settings).pack(side="left", padx=4)
-        self.start_btn = ttk.Button(btns, text="启动监控", command=self.start_monitor)
-        self.start_btn.pack(side="left", padx=4)
-        self.stop_btn = ttk.Button(btns, text="停止监控", command=self.stop_monitor, state="disabled")
-        self.stop_btn.pack(side="left", padx=4)
-        ttk.Button(btns, text="退出程序", command=self.on_exit).pack(side="left", padx=4)
-
-        # 静默时段：表格点选小时格子，选中的小时不发起登录
-        frm_quiet = ttk.LabelFrame(self.root, text="静默时段（点选小时格子；选中 = 该小时不发起登录）")
+        # 静默时段：表格上下滑动选择时间区间
+        frm_quiet = ttk.LabelFrame(body, text="静默时段（上下滑动选择时间区间）")
         frm_quiet.pack(fill="x", **pad)
-        self.quiet_hours = self._load_quiet_hours()
-        self.hour_buttons = {}
-        grid = ttk.Frame(frm_quiet)
-        grid.pack(anchor="w", padx=8, pady=(6, 0))
-        for h in range(24):
-            btn = tk.Button(grid, text="%02d" % h, width=4, relief="groove",
-                            command=lambda hh=h: self._toggle_quiet_hour(hh))
-            btn.grid(row=h // 8, column=h % 8, padx=2, pady=2)
-            self.hour_buttons[h] = btn
-            if h == 0:
-                self._default_btn_bg = btn.cget("bg")
-                self._default_btn_active_bg = btn.cget("activebackground")
+        start_str, end_str, quiet_on = self._load_quiet_range()
+        self._quiet_applied = (start_str, end_str, quiet_on)   # 已生效的静默区间
+        self.quiet_enabled_var = tk.BooleanVar(value=quiet_on)
+        ttk.Checkbutton(frm_quiet, text="启用（区间内不发起登录）",
+                        variable=self.quiet_enabled_var,
+                        command=self._refresh_quiet_widgets).grid(
+            row=0, column=0, columnspan=2, sticky="w", padx=8, pady=(6, 2))
+        pickers = ttk.Frame(frm_quiet)
+        pickers.grid(row=1, column=0, columnspan=2, sticky="ew", padx=8, pady=(2, 0))
+        pickers.columnconfigure(1, weight=1)
+        pickers.columnconfigure(3, weight=1)
+        times = ["%02d:00" % h for h in range(24)]
+        ttk.Label(pickers, text="开始").grid(row=0, column=0, padx=(0, 4))
+        self.quiet_start_list = tk.Listbox(pickers, height=4, width=6, exportselection=False,
+                                           activestyle="none")
+        self.quiet_start_list.grid(row=0, column=1, sticky="ew", padx=(0, 12))
+        ttk.Label(pickers, text="结束").grid(row=0, column=2, padx=(0, 4))
+        self.quiet_end_list = tk.Listbox(pickers, height=4, width=6, exportselection=False,
+                                         activestyle="none")
+        self.quiet_end_list.grid(row=0, column=3, sticky="ew")
+        for t in times:
+            self.quiet_start_list.insert("end", t)
+            self.quiet_end_list.insert("end", t)
+        self.quiet_start_list.selection_set(times.index(start_str) if start_str in times else 0)
+        self.quiet_end_list.selection_set(times.index(end_str) if end_str in times else 6)
+        self.quiet_start_list.see(times.index(start_str) if start_str in times else 0)
+        self.quiet_end_list.see(times.index(end_str) if end_str in times else 6)
+        self.quiet_start_list.bind("<<ListboxSelect>>", lambda _e: self._refresh_quiet_widgets())
+        self.quiet_end_list.bind("<<ListboxSelect>>", lambda _e: self._refresh_quiet_widgets())
+        self._enable_scrub(self.quiet_start_list)   # 框内按住滑动 / 滚轮选时间
+        self._enable_scrub(self.quiet_end_list)
         self.quiet_summary_var = tk.StringVar()
-        ttk.Label(frm_quiet, textvariable=self.quiet_summary_var).pack(anchor="w", padx=8, pady=(4, 2))
-        quiet_tools = ttk.Frame(frm_quiet)
-        quiet_tools.pack(anchor="w", padx=8, pady=(0, 8))
-        ttk.Button(quiet_tools, text="全不选", command=self._clear_quiet_hours).pack(side="left", padx=4)
-        ttk.Button(quiet_tools, text="夜间 23–07",
-                   command=lambda: self._set_quiet_hours(set(range(23, 24)) | set(range(0, 8)))).pack(side="left", padx=4)
-        ttk.Button(quiet_tools, text="凌晨 00–06",
-                   command=lambda: self._set_quiet_hours(set(range(0, 6)))).pack(side="left", padx=4)
+        ttk.Label(frm_quiet, textvariable=self.quiet_summary_var, wraplength=340).grid(
+            row=2, column=0, columnspan=2, sticky="w", padx=8, pady=(4, 2))
+        quiet_btns = ttk.Frame(frm_quiet)
+        quiet_btns.grid(row=3, column=0, columnspan=2, sticky="w", padx=8, pady=(0, 8))
+        ttk.Button(quiet_btns, text="设定", command=self._on_quiet_apply).pack(side="left", padx=(0, 4))
+        ttk.Button(quiet_btns, text="还原", command=self._on_quiet_revert).pack(side="left")
         self._refresh_quiet_widgets()
 
         # Clash 共存
-        frm_clash = ttk.LabelFrame(self.root, text="Clash 共存")
+        frm_clash = ttk.LabelFrame(body, text="Clash 共存")
         frm_clash.pack(fill="x", **pad)
         ttk.Label(frm_clash, text="生成直连规则片段（portal IP / 私网段 / 连通性检测域名 → DIRECT），",
-                  foreground="#666666").grid(row=0, column=0, sticky="w", padx=8, pady=(6, 0))
+                  foreground="#666666", wraplength=340).grid(row=0, column=0, sticky="w", padx=8, pady=(6, 0))
         ttk.Label(frm_clash, text="合并进 mihomo 配置或 Merge/覆写文件后即可与 Clash 长期共存。",
-                  foreground="#666666").grid(row=1, column=0, sticky="w", padx=8)
+                  foreground="#666666", wraplength=340).grid(row=1, column=0, sticky="w", padx=8)
         ttk.Button(frm_clash, text="生成 Clash 直连规则文件", command=self.on_write_clash_rules).grid(
             row=2, column=0, sticky="w", padx=8, pady=8)
 
         # 日志
-        frm_log = ttk.LabelFrame(self.root, text="日志（不含密码）")
-        frm_log.pack(fill="both", expand=True, **pad)
-        self.log_text = scrolledtext.ScrolledText(frm_log, height=12, state="disabled", wrap="word")
+        frm_log = ttk.LabelFrame(body, text="日志（不含密码）")
+        frm_log.pack(fill="x", **pad)
+        self.log_text = scrolledtext.ScrolledText(frm_log, height=10, state="disabled", wrap="word")
         self.log_text.pack(fill="both", expand=True, padx=8, pady=8)
         ttk.Button(frm_log, text="清空日志", command=self.on_clear_log).pack(anchor="e", padx=8, pady=(0, 8))
+
+        # 滚动区域稳定后回到顶部（避免初始视图停在底部）
+        self.canvas.yview_moveto(0)
+        self.root.after(80, lambda: self.canvas.yview_moveto(0))
+        # 小插件风格：初始停靠屏幕右下角（避开任务栏）
+        self.root.after(10, self._place_bottom_right)
+
+    def _place_bottom_right(self):
+        """像桌面小插件一样停靠在屏幕右下角（为任务栏留出空间）。"""
+        try:
+            self.root.update_idletasks()
+            w = self.root.winfo_width()
+            h = self.root.winfo_height()
+            x = max(0, self.root.winfo_screenwidth() - w - 16)
+            y = max(0, self.root.winfo_screenheight() - h - 64)
+            self.root.geometry("+%d+%d" % (x, y))
+        except tk.TclError:
+            pass
 
     # ---- 日志 ----
 
@@ -352,14 +425,18 @@ class App:
             return user, password
         return self.creds
 
-    def start_monitor(self):
+    def start_monitor(self, auto=False):
         if self.worker and self.worker.is_alive():
             return
         creds = self._current_creds()
         if not creds:
-            messagebox.showwarning("缺少账号", "请先填写账号密码并点击「保存账号」")
+            if auto:
+                # 小插件开机自启时不弹模态框，仅提示
+                self._queue_log(core.STATE_INIT, "未配置账号，已跳过自动启动监控（请先保存账号）")
+            else:
+                messagebox.showwarning("缺少账号", "请先填写账号密码并点击「保存账号」")
             return
-        quiet = sorted(self.quiet_hours)
+        quiet = self._applied_range_str()
         self.engine = core.Engine(self.cfg, creds, quiet_window=quiet, interruptible_sleep=True)
         self.worker = threading.Thread(target=self._monitor_loop, daemon=True)
         self.worker.start()
@@ -456,64 +533,126 @@ class App:
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _load_quiet_hours(self):
-        """从配置加载静默小时集合（兼容旧的区间字符串写法）。"""
+    def _load_quiet_range(self):
+        """从配置加载 (开始, 结束, 是否启用)。兼容旧的小时列表写法。"""
         spec = self.cfg.get("quiet_hours", "")
-        hours = set()
-        if isinstance(spec, (list, tuple, set)):
-            for h in spec:
-                try:
-                    hh = int(h)
-                except (TypeError, ValueError):
-                    continue
-                if 0 <= hh <= 23:
-                    hours.add(hh)
-        elif isinstance(spec, str) and spec.strip():
-            w = core.parse_quiet_window(spec)
-            if w:
-                s, e = w
-                span = range(s, e) if s <= e else range(s, 24 * 60 + e)
-                for m in span:
-                    hours.add((m // 60) % 24)
-        return hours
 
-    def _toggle_quiet_hour(self, hour):
-        if hour in self.quiet_hours:
-            self.quiet_hours.discard(hour)
-        else:
-            self.quiet_hours.add(hour)
+        def norm(t):
+            parts = t.split(":")
+            if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                return "%02d:%02d" % (int(parts[0]) % 24, int(parts[1]) % 60)
+            return None
+
+        if isinstance(spec, (list, tuple, set)) and spec:
+            hours = sorted({int(h) for h in spec if str(h).strip("-").isdigit() and 0 <= int(h) <= 23})
+            if hours:
+                return "%02d:00" % hours[0], "%02d:00" % ((hours[-1] + 1) % 24), True
+        elif isinstance(spec, str) and "-" in spec:
+            left, right = [x.strip() for x in spec.split("-", 1)]
+            l, r = norm(left), norm(right)
+            if l and r:
+                return l, r, True
+        return "00:00", "06:00", False
+
+    def _enable_scrub(self, lb):
+        """时间框支持滑动选择：按住上下拖动连续改变时间，滚轮逐档切换。"""
+
+        def select(idx):
+            idx = max(0, min(lb.size() - 1, idx))
+            lb.selection_clear(0, "end")
+            lb.selection_set(idx)
+            lb.activate(idx)
+            lb.see(idx)
+            self._refresh_quiet_widgets()
+
+        def on_press(e):
+            lb._acc = 0
+            lb._last_y = e.y
+            select(lb.nearest(e.y))
+
+        def on_drag(e):
+            delta = e.y - getattr(lb, "_last_y", e.y)
+            lb._last_y = e.y
+            acc = getattr(lb, "_acc", 0) - delta        # 上滑 = 时间增大
+            bbox = lb.bbox(0)
+            row_h = max(12, bbox[3] if bbox else 18)
+            while abs(acc) >= row_h:
+                step = 1 if acc > 0 else -1
+                cur = lb.curselection()
+                select((cur[0] if cur else 0) + step)
+                acc -= step * row_h
+            lb._acc = acc
+
+        def on_wheel(e):
+            cur = lb.curselection()
+            select((cur[0] if cur else 0) + (-1 if e.delta > 0 else 1))
+            return "break"   # 阻止冒泡到整页滚动
+
+        lb.bind("<ButtonPress-1>", on_press)
+        lb.bind("<B1-Motion>", on_drag)
+        lb.bind("<MouseWheel>", on_wheel)
+
+    def _quiet_start(self):
+        sel = self.quiet_start_list.curselection()
+        return self.quiet_start_list.get(sel[0]) if sel else "00:00"
+
+    def _quiet_end(self):
+        sel = self.quiet_end_list.curselection()
+        return self.quiet_end_list.get(sel[0]) if sel else "06:00"
+
+    def _quiet_range(self):
+        """返回 'HH:MM-HH:MM'；未启用返回空串。"""
+        if not self.quiet_enabled_var.get():
+            return ""
+        return "%s-%s" % (self._quiet_start(), self._quiet_end())
+
+    def _applied_range_str(self):
+        start, end, on = self._quiet_applied
+        return "%s-%s" % (start, end) if on else ""
+
+    def _set_picker(self, start, end):
+        times = ["%02d:00" % h for h in range(24)]
+        i = times.index(start) if start in times else 0
+        j = times.index(end) if end in times else 6
+        for lb, idx in ((self.quiet_start_list, i), (self.quiet_end_list, j)):
+            lb.selection_clear(0, "end")
+            lb.selection_set(idx)
+            lb.see(idx)
+
+    def _on_quiet_apply(self):
+        """把滑选中的区间设为生效值（防误触：滑动只暂存，点「设定」才生效）。"""
+        self._quiet_applied = (self._quiet_start(), self._quiet_end(),
+                               self.quiet_enabled_var.get())
+        rng = self._applied_range_str()
+        self.cfg["quiet_hours"] = rng
+        self._write_config()
+        if self.engine:                       # 监控中即时生效，无需重启
+            self.engine.quiet_predicate = core.build_quiet_predicate(rng)
+        self._queue_log("CONFIG", "静默时段已设定：%s" % (rng or "未启用"))
         self._refresh_quiet_widgets()
 
-    def _set_quiet_hours(self, hours):
-        self.quiet_hours = set(hours)
-        self._refresh_quiet_widgets()
-
-    def _clear_quiet_hours(self):
-        self.quiet_hours = set()
+    def _on_quiet_revert(self):
+        self._set_picker(self._quiet_applied[0], self._quiet_applied[1])
+        self.quiet_enabled_var.set(self._quiet_applied[2])
         self._refresh_quiet_widgets()
 
     def _format_quiet_hours(self):
-        if not self.quiet_hours:
-            return "未启用"
-        hs = sorted(self.quiet_hours)
-        parts = []
-        i = 0
-        while i < len(hs):
-            j = i
-            while j + 1 < len(hs) and hs[j + 1] == hs[j] + 1:
-                j += 1
-            parts.append("%02d 时-%02d 时" % (hs[i], hs[j]))
-            i = j + 1
-        return "、".join(parts)
+        rng = self._applied_range_str()
+        return rng if rng else "未启用"
 
     def _refresh_quiet_widgets(self):
-        for h, btn in self.hour_buttons.items():
-            if h in self.quiet_hours:
-                btn.configure(bg="#CCE5FF", activebackground="#99CCFF", relief="sunken")
-            else:
-                btn.configure(bg=self._default_btn_bg,
-                              activebackground=self._default_btn_active_bg, relief="groove")
-        self.quiet_summary_var.set("已选 %d 小时：%s" % (len(self.quiet_hours), self._format_quiet_hours()))
+        applied = self._applied_range_str() or "未启用"
+        pending = self._quiet_range() or "未启用"
+        if pending != applied:
+            self.quiet_summary_var.set("生效：%s ｜ 待设定：%s（点「设定」后生效）" % (applied, pending))
+        else:
+            self.quiet_summary_var.set("生效：%s（区间内不发起登录）" % applied)
+
+    def _write_config(self):
+        tmp_path = self.cfg_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(self.cfg, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, self.cfg_path)  # 原子替换，避免崩溃留下空配置
 
     def on_save_settings(self):
         try:
@@ -521,11 +660,8 @@ class App:
         except ValueError:
             messagebox.showwarning("格式错误", "探测间隔必须是整数秒")
             return
-        self.cfg["quiet_hours"] = sorted(self.quiet_hours)
-        tmp_path = self.cfg_path + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(self.cfg, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, self.cfg_path)  # 原子替换，避免崩溃留下空配置
+        self.cfg["quiet_hours"] = self._applied_range_str()   # 只保存已「设定」的区间
+        self._write_config()
         self._queue_log("CONFIG", "设置已保存：%s" % self.cfg_path)
 
     def on_toggle_autostart(self):
