@@ -1,0 +1,20 @@
+# ===== 校园网认证直连规则（CampusAutoLogin M2 生成）=====
+# 用法：合并进 mihomo/Clash 配置，或放进客户端的 Merge / 覆写文件。
+# 注意：rules 片段必须放在你原有 MATCH 兜底规则之前。
+dns:
+  fake-ip-filter:
+    - '+.msftconnecttest.com'
+    - '+.msftncsi.com'
+    - 'connectivitycheck.gstatic.com'
+    - 'captive.apple.com'
+rules:
+  - IP-CIDR,202.196.169.166/32,DIRECT,no-resolve
+  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - DOMAIN-SUFFIX,msftconnecttest.com,DIRECT
+  - DOMAIN-SUFFIX,msftncsi.com,DIRECT
+tun:
+  route-exclude-address:
+    - 10.0.0.0/8
+    - 202.196.169.166/32

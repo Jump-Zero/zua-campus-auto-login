@@ -1,0 +1,22 @@
+# 构建产物
+dist/
+build/
+*.spec
+
+# 运行数据（个人配置与加密凭据，绝不提交）
+config.json
+credential.bin
+diag.txt
+*.tmp
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini
