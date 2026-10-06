@@ -368,7 +368,7 @@ def load_credentials(path: str):
 # ---------------------------------------------------------------------------
 
 
-def load_config(path: str) -> dict:
+def load_config(path: str, on_warning=None) -> dict:
     cfg = dict(DEFAULT_CONFIG)
     if os.path.exists(path):
         try:
@@ -378,7 +378,10 @@ def load_config(path: str) -> dict:
                 cfg.update(loaded)
         except (json.JSONDecodeError, OSError) as exc:
             # 恢复路径：配置损坏/被截断时回退默认值，不阻断启动
-            print("配置文件无法解析（%s）：%s；已回退默认配置" % (path, exc))
+            msg = "配置文件无法解析（%s）：%s；已回退默认配置" % (path, exc)
+            print(msg)
+            if on_warning:
+                on_warning(msg)
     return cfg
 
 

@@ -17,6 +17,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import queue
 import sys
@@ -138,17 +139,21 @@ class App:
         self.root = root
         self.cfg_path = os.path.join(BASE_DIR, core.CONFIG_FILE)
         self.cred_path = os.path.join(BASE_DIR, core.CREDENTIAL_FILE)
-        self.cfg = core.load_config(self.cfg_path)
-        try:
-            self.creds = core.load_credentials(self.cred_path)
-        except OSError:
-            self.creds = None
         self.engine = None
         self.worker = None
         self.log_queue = queue.Queue()
         self.action_queue = queue.Queue()  # 托盘线程只入队，UI 线程统一消费
         self.tray = None
         core.log = self._queue_log  # 界面接管日志输出（密码永不入日志）
+        # 界面回调异常默认被 tkinter 吞掉（如保存失败会静默）；改为进日志
+        self.root.report_callback_exception = self._on_callback_exception
+        # 配置损坏/为空时的回退警告进界面日志（避免"静默时段未启用"一类困惑）
+        self.cfg = core.load_config(
+            self.cfg_path, on_warning=lambda m: self._queue_log("WARN", m))
+        try:
+            self.creds = core.load_credentials(self.cred_path)
+        except OSError:
+            self.creds = None
 
         self._build_ui()
         self._init_tray()
@@ -335,6 +340,12 @@ class App:
     def _queue_log(self, state, msg):
         self.log_queue.put("[%s] [%s] %s" % (datetime.now().strftime("%H:%M:%S"), state, msg))
 
+    def _on_callback_exception(self, exc_type, exc_value, exc_tb):
+        """把界面操作中的异常写进日志（防止保存/设定等操作静默失败）。"""
+        import traceback
+        self._queue_log("ERROR", "界面操作异常：%s" % "".join(
+            traceback.format_exception_only(exc_type, exc_value)).strip())
+
     def _poll_logs(self):
         try:
             while True:
@@ -438,7 +449,9 @@ class App:
         self.worker.start()
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
-        self._queue_log(core.STATE_INIT, "监控已启动（静默时段：%s）" % self._format_quiet_hours())
+        quiet_desc = self._format_quiet_hours()
+        hint = "" if self._applied_range_str() else "；滑选时间后点「设定」启用"
+        self._queue_log(core.STATE_INIT, "监控已启动（静默时段：%s%s）" % (quiet_desc, hint))
 
     def stop_monitor(self):
         if self.engine:
