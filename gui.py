@@ -621,7 +621,9 @@ class App:
         self._write_config()
         if self.engine:                       # 监控中即时生效，无需重启
             self.engine.quiet_predicate = core.build_quiet_predicate(rng)
-        self._queue_log("CONFIG", "静默时段已设定：%s（已启用，区间内不发起登录）" % rng)
+        running = bool(self.worker and self.worker.is_alive())
+        self._queue_log("CONFIG", "静默时段已设定：%s ｜ 状态：已启用生效（%s；区间内不发起登录）" % (
+            rng, "监控中即时生效" if running else "启动监控后生效"))
         self._refresh_quiet_widgets()
 
     def _on_quiet_disable(self):
@@ -631,11 +633,13 @@ class App:
         self._write_config()
         if self.engine:
             self.engine.quiet_predicate = core.build_quiet_predicate("")
-        self._queue_log("CONFIG", "静默时段已停用")
+        self._queue_log("CONFIG", "静默时段已停用 ｜ 状态：未启用（全时段正常登录）")
         self._refresh_quiet_widgets()
 
     def _on_quiet_revert(self):
         self._set_picker(self._quiet_applied[0], self._quiet_applied[1])
+        self._queue_log("CONFIG", "静默时段滑动改动已还原 ｜ 当前生效：%s" % (
+            self._applied_range_str() or "未启用"))
         self._refresh_quiet_widgets()
 
     def _format_quiet_hours(self):
