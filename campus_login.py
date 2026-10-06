@@ -36,6 +36,13 @@ import urllib.request
 from datetime import datetime
 from html.parser import HTMLParser
 
+# 强制 UTF-8 输出：Windows 控制台/CI 默认编码（如 cp1252）无法打印中文日志
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 # ---------------------------------------------------------------------------
 # 常量与状态定义
 # ---------------------------------------------------------------------------

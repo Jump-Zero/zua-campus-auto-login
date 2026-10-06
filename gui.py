@@ -23,6 +23,13 @@ import sys
 import threading
 from datetime import datetime
 
+# 强制 UTF-8 输出：Windows 控制台/CI 默认编码（如 cp1252）无法打印中文日志
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 if getattr(sys, "frozen", False):  # PyInstaller 单文件：数据目录 = exe 所在目录（便携）
     BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
 else:
